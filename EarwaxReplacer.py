@@ -1,14 +1,31 @@
-# Import important libraries
-
 import os
 import gc
-import glob
+#import glob
 import json
 import numpy as np
 from scipy.io import wavfile
 from scipy.signal import stft
 from pydub import AudioSegment
+from pathlib import Path
+import shutil
 
+# path on your system where custom sounds are located
+CUSTOM_SOUNDS_BASE_PATH = Path("./New Sounds")
+# can be an absolute path, e.g.
+#CUSTOM_SOUNDS_BASE_PATH = Path("C:\Users\<username>\Documents\Earwax Sounds")
+
+# path on your system to the Earwax game
+# taking a wild guess for Windows. i haven't tested this, this may not work
+EARWAX_BASE_PATH = Path("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Jackbox Games\\The Jackbox Party Pack 2\\games\\Earwax")
+# macOS, probably:
+#EARWAX_BASE_PATH = Path("~/Library/Application Support/Steam/steamapps/common/The Jackbox Party Pack 2/games/Earwax")
+# and Linux:
+#EARWAX_BASE_PATH = Path("~/.local/share/Steam/steamapps/common/The Jackbox Party Pack 2/games/Earwax")
+
+# derived from the above Earwax path
+AUDIO_JET_PATH = EARWAX_BASE_PATH / "content" / "EarwaxAudio.jet"
+SPECTRUM_PATH = EARWAX_BASE_PATH / "content" / "EarwaxAudio" / "Spectrum"
+AUDIO_PATH = EARWAX_BASE_PATH / "content" / "EarwaxAudio" / "Audio"
 
 def getChannelScaled(ChannelData):
     # Compute the Short-Time Fourier Transform (STFT)
@@ -60,61 +77,61 @@ def getChannelScaled(ChannelData):
 
     return integer_scaled_reduced_magnitude_spectra
 
-
-# Get CWD and set it to look in New Sounds
-cwd = os.getcwd()
-cwd += '/New Sounds'
+# glob for custom sounds
+# only ogg files -- sorry!
+custom_sounds = CUSTOM_SOUNDS_BASE_PATH.glob("*.ogg")
+# convert to a list of dicts in the form {"path": Path, "id": int}[]
+custom_sounds = [{"path": s, "id": i+30000} for i, s in enumerate(custom_sounds)]
+# each sound needs a unique int that acts as its id. the vanilla English game
+# seems to have id's starting in the 22000's up to the 25000's. i'm not sure if
+# the prompts (in Earwax/content/EarwaxPrompts) use the same id-space, but they
+# start in the 411000's to the 433000's. regardless, that isn't a problem until
+# you are adding 400k custom sounds.
+#
+# the original USB3pt0/EarwaxReplacer used the bare filename without the
+# extension (the "stem", in pathlib terminology) as the id, but this caused
+# freezes in-game for me. maybe because i was using characters like ", ', and
+# [space] in my filenames. oops!
 
 # Find any supported non-ogg files and convert them to ogg
 extension_list = ('*.mp3', '*.wav')
-os.chdir(cwd)
 # create directory to move original audio files
-if (not os.path.exists('Original Audio Files')):
-    os.mkdir('Original Audio Files')
+backup_audio_path = CUSTOM_SOUNDS_BASE_PATH / 'Original Audio Files'
+backup_audio_path.mkdir(exist_ok=True)
 for extension in extension_list:
-    for audio in glob.glob(extension):
-        print("Converting", os.path.basename(audio), "to ogg")
+    for path in CUSTOM_SOUNDS_BASE_PATH.glob(extension):
+        # sound: {"path": Path, "id": int}
+        print(f"Converting \"{path.stem}\" to ogg")
         # use pydub to create the ogg file
-        audio_filename = os.path.splitext(os.path.basename(audio))[0] + '.ogg'
-        AudioSegment.from_file(audio).export(
+        audio_filename = path.parent / (path.stem + ".ogg")
+        AudioSegment.from_file(path).export(
             audio_filename, format='ogg', bitrate="64k")
         # move the original audio file to subdir
-        os.rename(os.path.basename(audio),
-                  'Original Audio Files/' + os.path.basename(audio))
-os.chdir('..')
-
-# Initialize files array
-files = []
-# Step through the directory and index every name in an array
-for dirname, dirnames, filenames in os.walk(cwd):
-
-    # Strip the .ogg from every .ogg file and shove it in the array
-    for filename in filenames:
-        if filename.endswith(".ogg"):
-            filename = filename[:-4]
-            files.append(filename)
+        path.rename(backup_audio_path / path.name)
 
 # Generate a spectrum file for each audio file
-for file in files:
-    AudioName = file  # Audio File
-    AudioWavFile = cwd + "/" + AudioName + ".wav"
-    AudioOggFile = cwd + "/" + AudioName + ".ogg"
-    AudioSpectrumFile = cwd + "/../Spectrum/" + AudioName + ".jet"
+for sound in custom_sounds:
+    # sound: {"path": Path, "id": int}
+    path = sound["path"]
+    id = sound["id"]
+    stem = path.stem
+    wav_path = path.parent / (stem + ".wav")
+    spectrum_path = SPECTRUM_PATH / (str(id) + ".jet")
 
-    if (os.path.exists(AudioSpectrumFile)):
-        print("Spectrum File Already Exists for", os.path.basename(file))
+    if (spectrum_path.exists()):
+        print(f"Spectrum File Already Exists for \"{stem}\"")
         continue
 
-    print("Generating Spectrum File for", os.path.basename(file))
+    print(f"Generating Spectrum File for \"{stem}\"")
 
     # Convert ogg to wav for analysis
     try:
-        audio = AudioSegment.from_file(AudioOggFile)
+        audio = AudioSegment.from_file(path)
         audio = audio.set_frame_rate(1376)
-        audio.export(AudioWavFile, format='wav')
+        audio.export(wav_path, format='wav')
 
         # Analyze WAV file
-        fs, Audiodata = wavfile.read(AudioWavFile)
+        fs, Audiodata = wavfile.read(wav_path)
 
         # Do this spectrum analysis for each Channel
         # print(len(Audiodata.shape))
@@ -143,51 +160,63 @@ for file in files:
             output_data['Frequencies'].append(thisRow)
 
         # Write the Spectrum file
-        with open(AudioSpectrumFile, 'w') as f:
+        with open(spectrum_path, 'w') as f:
             json.dump(output_data, f)
     except Exception as e:
         print(e)
 
     # Cleanup!
     try:
-        os.remove(AudioWavFile)
+        wav_path.unlink()
     except Exception as e:
         print(e)
 
-# Changed CWD back
-cwd = os.getcwd()
+# another major deviation from USB3pt0/EarwaxReplacer: as it turns out, the
+# EarwaxAudio.jet file is just a JSON file. the original script used a lot of
+# string splicing to write out new sounds to this file, but it's a lot easier to
+# just use json.load and json.dump.
+audio_jet = json.load(open(AUDIO_JET_PATH))
+# the type of audio_jet, in Typescript syntax (sorry!)
+# audio_jet:{
+#               "episodeid": int
+#               "content": {
+#                   "x": bool
+#                   "name": str,
+#                   "short": str,
+#                   "id": int,
+#                   "categories": str[]
+#               }[]
+#           }
 
-# Now create the new EarwaxAudio.jet
-print("Creating EarwaxAudio.jet")
-newEarwaxAudio = open(cwd+'/EarwaxAudio.jet', "w")
-
-# Write to it the initial lines
-newEarwaxAudio.write('{\n\t"episodeid":1234,"content":\n\t[\n')
-
-# We need to do a preliminary write here.  Technically we don't, but I don't understand file.seek and why it kept
-# stopping the script in its tracks.  You can't have a comma at the end of the .jet file list, or the game never
-# knows to stop looking for sounds and just loads nothing.  I tried to delete it but couldn't figure it out,
-# and I'm lazy right now, so we're gonna do a preliminary write to get some stuff there so I can just write the comma
-# at the beginning of the loop and erase that variable.
-newEarwaxAudio.write('\t\t{"x":false,"name":"'+file+'","short":"' +
-                     file+'","id":"'+file+'","categories":["household"]}')
-
-# Now write the line for every file.
 # What these fields mean: if x is true, it will not show up when family friendly filter is on.
 # name and short are the names of the sound.  name is what appears on a player's device; short is in-game.
 # id is the filename without the extension.
 # categories is used for a few achievements and has no bearing on how the sound is chosen by the game.
-for file in files:
-    if file == files[0]:
-        continue
-    newEarwaxAudio.write(',\n\t\t{"x":false,"name":"'+file+'","short":"' +
-                         file+'","id":"'+file+'","categories":["household"]}')
+for sound in custom_sounds:
+    path = sound["path"]
+    id = sound["id"]
+    stem = path.stem
+    audio_jet["content"].append({
+        "x": False,
+        "name": stem,
+        "short": stem,
+        "id": id,
+        "categories": ["household"]
+    })
 
-# And write the final lines of the jet and close it up!
-newEarwaxAudio.write('\n\t]\n}')
-newEarwaxAudio.close()
+# indent=2 is just here to make the final file more human-readable.
+# ensure_ascii is false here because it appears Earwax can read raw UTF-8 JSON
+# strings just fine (and has UTF-8 curly quotes in the original anyway).
+json.dump(audio_jet, open(AUDIO_JET_PATH, "w"), indent=2, ensure_ascii=False)
+
+# finally, copy the sounds to the actual location
+for sound in custom_sounds:
+    path = sound["path"]
+    id = sound["id"]
+    destination = AUDIO_PATH / Path(f"./{id}.ogg")
+    if (destination).exists():
+        print(f"audio file already exists for \"{path.stem}\"")
+    else:
+        shutil.copy(path, destination)
 
 print("Complete!")
-
-# And collect garbage.
-gc.collect()

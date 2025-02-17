@@ -1,3 +1,24 @@
+# note from ebu
+
+this is a fork of [USB3pt0/EarwaxReplacer](https://github.com/USB3pt0/EarwaxReplacer) that (subjectively) felt like a strong enough deviation from the original that submitting a PR didn't make much sense, but i still wanted to release my changes in case anyone else ran into the same issues i did.
+
+### this version:
+
+- uses `pathlib.Path` whenever possible instead of methods on `os` and `os.path`
+- uses assigned numeric IDs for the sounds instead of sound file names
+- uses `json` to parse `EarwaxAudio.jet` instead of manual string slicing
+
+to use:
+
+1. \[Optional\] setup a virtual environment.
+   - `python -m venv .venv`
+   - `. ./.venv/bin/activate` (or `./.venv/bin/activate.bat` on Windows)
+1. `pip install -r requirements.txt`
+1. edit `CUSTOM_SOUNDS_BASE_PATH` and `EARWAX_BASE_PATH` in `EarwaxReplacer.py` to point to appropriate folders.
+1. `python EarwaxReplacer.py`
+
+---
+
 # EarwaxReplacer
 
 A Python script to replace the default sounds in The Jackbox Party Pack 2's game Earwax.
@@ -12,10 +33,11 @@ This was hastily made by me, for me, so it won't trim files, or change their vol
 5. The script takes the filename and strips the extension from it; whatever the filename is, will be what the sound is named in-game.
 
 # Prerequisites:
+
 - You must have Python 3 installed and the ability to run commands through a command-line interface. Windows Python installers will ask if you want to add it to your PATH variable; choose yes.
 - You must have the following modules installed: [numpy](https://numpy.org/install/), [scipy](https://scipy.org/install/), and [pydub](https://pypi.org/project/pydub/).
-Not having them installed will simply close it if run from Windows, or crash and tell you which of the three you need to install when run through command line.
-- You must also have ffmpeg installed.  On Windows, run the following commands after installing Python 3:
+  Not having them installed will simply close it if run from Windows, or crash and tell you which of the three you need to install when run through command line.
+- You must also have ffmpeg installed. On Windows, run the following commands after installing Python 3:
   ```
   pip install ffmpeg-downloader
   ffdl install --add-path
